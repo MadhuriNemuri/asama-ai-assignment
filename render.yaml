@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: asama-ai-assignment
+    env: python
+    buildCommand: ""
+    startCommand: python web_dashboard.py
+    autoDeploy: true

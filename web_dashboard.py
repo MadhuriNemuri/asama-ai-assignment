@@ -570,20 +570,22 @@ class RequestHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
-def run_server(port=5000):
+def run_server(port=None):
+    if port is None:
+        port = int(os.environ.get("PORT", 5000))
     init_social_db()
-    server_address = ("127.0.0.1", port)
+    server_address = ("0.0.0.0", port)
     httpd = HTTPServer(server_address, RequestHandler)
-    url = f"http://127.0.0.1:{port}"
     print("=" * 80)
     print("  ASAMA.AI ENGINEERING DASHBOARD STARTED")
-    print(f"  URL: {url}")
+    print(f"  Listening on: http://0.0.0.0:{port}")
     print("  Press Ctrl+C to stop the server.")
     print("=" * 80)
-    try:
-        webbrowser.open(url)
-    except Exception:
-        pass
+    if not os.environ.get("PORT"):
+        try:
+            webbrowser.open(f"http://127.0.0.1:{port}")
+        except Exception:
+            pass
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
@@ -591,4 +593,4 @@ def run_server(port=5000):
         httpd.server_close()
 
 if __name__ == "__main__":
-    run_server(port=5000)
+    run_server()
