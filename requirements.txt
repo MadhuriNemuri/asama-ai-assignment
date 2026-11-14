@@ -1,0 +1,2 @@
+# Root requirements for Render deployment
+# web_dashboard.py runs on pure Python standard library
