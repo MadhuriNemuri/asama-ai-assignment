@@ -1,7 +1,7 @@
 """
-Vercel Serverless Function Entrypoint
-Hosts the interactive Asama.ai Engineering Dashboard.
-Uses Python Standard Library (zero-dependency, serverless-ready).
+Vercel WSGI Serverless Entrypoint for Asama.ai Engineering Dashboard.
+Uses 100% Python Standard Library (WSGI PEP-3333 compliant).
+Zero external dependencies required.
 """
 
 import os
@@ -11,14 +11,13 @@ import sqlite3
 import math
 import re
 import time
-from http.server import BaseHTTPRequestHandler
-from urllib.parse import urlparse
 
-# Use /tmp on Vercel serverless environment
-DB_FILE = "/tmp/dashboard_network.db" if os.environ.get("VERCEL") else os.path.join(os.path.dirname(__file__), "dashboard_network.db")
+# Use /tmp for writable SQLite on Vercel Serverless
+DB_FILE = "/tmp/dashboard_network.db"
 
 # --- 1. EMBEDDING ENGINE ---
 DIM = 64
+
 class BuiltinEmbedder:
     def __init__(self, dim=DIM):
         self.dim = dim
@@ -104,7 +103,6 @@ def init_db():
             created_at TEXT NOT NULL
         )
     """)
-    # Seed default agents if empty
     cur.execute("SELECT COUNT(*) FROM agents")
     if cur.fetchone()[0] == 0:
         agents = [
@@ -199,7 +197,6 @@ def process_social_post(author_id: str, title: str, content: str):
 
     t3_ms = round((time.time() - t3_start) * 1000, 2)
 
-    # Autonomous responses
     autonomous_responses = {
         "PhonePe": f"PhonePe will provide extra ₹50 cashback when users pay via PhonePe UPI for {author_company} Diwali orders.",
         "HDFC Bank": f"HDFC Bank offers flat 10% instant discount up to ₹100 using HDFC Credit Cards on {author_company} festive purchases."
@@ -280,7 +277,7 @@ def answer_hardware_query(query: str):
         "answer": "I have collected available hardware metrics. Please see structured JSON output for details."
     }
 
-# --- 4. HTML UI ---
+# --- 4. HTML USER INTERFACE ---
 HTML_PAGE = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -518,38 +515,52 @@ HTML_PAGE = """<!DOCTYPE html>
 </body>
 </html>"""
 
-# --- 5. VERCEL SERVERLESS HANDLER ---
-class handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        parsed = urlparse(self.path)
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(HTML_PAGE.encode("utf-8"))
+# --- 5. WSGI ENTRYPOINT EXPORT ---
+def app(environ, start_response):
+    """
+    Standard WSGI Application (PEP 3333).
+    Automatically detected by Vercel Python Runtime.
+    """
+    method = environ.get("REQUEST_METHOD", "GET").upper()
+    path = environ.get("PATH_INFO", "/")
 
-    def do_POST(self):
-        content_length = int(self.headers.get("Content-Length", 0))
-        post_data = self.rfile.read(content_length).decode("utf-8")
-        req_json = json.loads(post_data) if post_data else {}
+    if method == "GET":
+        status = "200 OK"
+        headers = [("Content-Type", "text/html; charset=utf-8")]
+        start_response(status, headers)
+        return [HTML_PAGE.encode("utf-8")]
 
-        parsed = urlparse(self.path)
-        if "social/publish" in parsed.path:
+    elif method == "POST":
+        try:
+            content_length = int(environ.get("CONTENT_LENGTH", 0))
+        except (ValueError, TypeError):
+            content_length = 0
+
+        body = environ["wsgi.input"].read(content_length).decode("utf-8") if content_length > 0 else "{}"
+        req_json = json.loads(body) if body else {}
+
+        if "social/publish" in path:
             author_id = req_json.get("author_id", "swiggy-01")
             title = req_json.get("title", "")
             content = req_json.get("content", "")
             result = process_social_post(author_id, title, content)
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps(result).encode("utf-8"))
+            status = "200 OK"
+            headers = [("Content-Type", "application/json")]
+            start_response(status, headers)
+            return [json.dumps(result).encode("utf-8")]
 
-        elif "hardware/query" in parsed.path:
+        elif "hardware/query" in path:
             query = req_json.get("query", "")
             result = answer_hardware_query(query)
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps(result).encode("utf-8"))
-        else:
-            self.send_response(404)
-            self.end_headers()
+            status = "200 OK"
+            headers = [("Content-Type", "application/json")]
+            start_response(status, headers)
+            return [json.dumps(result).encode("utf-8")]
+
+    status = "404 Not Found"
+    headers = [("Content-Type", "text/plain")]
+    start_response(status, headers)
+    return [b"Not Found"]
+
+# Expose both app and handler for maximum compatibility
+handler = app
